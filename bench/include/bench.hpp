@@ -1,5 +1,19 @@
 #pragma once
 
+// `bench.hpp`
+// ------------
+// This header holds small, reusable helpers used by all benchmark binaries.
+// The goal is to keep the individual `*_client.cpp` and `*_server.cpp` files
+// focused on protocol logic, while common tasks live here:
+//
+// - Timing helpers (steady clock, ISO timestamp)
+// - Payload generation (random bytes)
+// - Simple summary statistics (min/max/avg/p50/p95)
+// - Tiny CLI argument parsing (`--key value` and flags)
+// - CSV writing for latency samples
+//
+// The implementations are intentionally straightforward and dependency-free.
+
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -17,8 +31,12 @@
 
 namespace bench {
 
+// We use a monotonic clock so elapsed-time measurements don't jump if the system
+// clock changes (NTP adjustments, manual time changes, etc.).
 using Clock = std::chrono::steady_clock;
 
+// Return an ISO-8601 UTC timestamp like "2026-03-26T05:12:20Z".
+// This is mainly for labeling outputs.
 inline std::string now_iso8601_utc() {
   using std::chrono::system_clock;
   auto t = system_clock::to_time_t(system_clock::now());
@@ -31,6 +49,11 @@ inline std::string now_iso8601_utc() {
   return std::string(buf);
 }
 
+// Create a byte payload of size `bytes`.
+//
+// Why random? If we always send identical bytes, some layers can optimize
+// (compression, deduplication, caches). Random payloads make the benchmark
+// closer to "real" data.
 inline std::vector<std::uint8_t> make_payload(size_t bytes) {
   std::vector<std::uint8_t> p(bytes);
   static thread_local std::mt19937 rng{std::random_device{}()};
@@ -39,6 +62,10 @@ inline std::vector<std::uint8_t> make_payload(size_t bytes) {
   return p;
 }
 
+// Compute a percentile from a set of latency samples.
+//
+// Example: p=50 gives the median, p=95 gives "p95".
+// We do a simple sort and linear interpolation.
 inline double percentile_ms(std::vector<double> samples_ms, double p) {
   if (samples_ms.empty()) return 0.0;
   if (p <= 0) {
@@ -55,6 +82,8 @@ inline double percentile_ms(std::vector<double> samples_ms, double p) {
   return samples_ms[lo] * (1.0 - frac) + samples_ms[hi] * frac;
 }
 
+// A small summary block for a latency distribution.
+// All units are milliseconds.
 struct Summary {
   size_t n = 0;
   double min_ms = 0;
@@ -64,6 +93,7 @@ struct Summary {
   double p95_ms = 0;
 };
 
+// Summarize a list of milliseconds: min/max/average/p50/p95.
 inline Summary summarize_ms(const std::vector<double> &samples_ms) {
   Summary s;
   s.n = samples_ms.size();
@@ -76,6 +106,12 @@ inline Summary summarize_ms(const std::vector<double> &samples_ms) {
   return s;
 }
 
+// Write latency samples to a 1-column CSV.
+//
+// This is useful because you can:
+// - plot a histogram/CDF later
+// - compute additional percentiles
+// - compare runs visually
 inline void write_latency_csv(const std::string &path, const std::vector<double> &samples_ms) {
   std::ofstream f(path);
   if (!f) throw std::runtime_error("failed to open CSV: " + path);
@@ -83,6 +119,14 @@ inline void write_latency_csv(const std::string &path, const std::vector<double>
   for (auto v : samples_ms) f << v << "\n";
 }
 
+// ---- Tiny CLI parsing helpers ----
+//
+// These functions support a minimal convention used across all binaries:
+//
+//   --key value
+//   --flag
+//
+// We intentionally don't depend on a full CLI library to keep the project small.
 inline std::optional<std::string> get_arg(int argc, char **argv, std::string_view key) {
   const std::string k(key);
   for (int i = 1; i + 1 < argc; i++) {
@@ -91,6 +135,7 @@ inline std::optional<std::string> get_arg(int argc, char **argv, std::string_vie
   return std::nullopt;
 }
 
+// Return true if `--key` appears anywhere in argv.
 inline bool has_flag(int argc, char **argv, std::string_view key) {
   const std::string k(key);
   for (int i = 1; i < argc; i++) {
@@ -99,30 +144,38 @@ inline bool has_flag(int argc, char **argv, std::string_view key) {
   return false;
 }
 
+// Parse an int from `--key value`, or return `def`.
 inline int get_int(int argc, char **argv, std::string_view key, int def) {
   auto v = get_arg(argc, argv, key);
   if (!v) return def;
   return std::stoi(*v);
 }
 
+// Parse a size from `--key value`, or return `def`.
 inline size_t get_size(int argc, char **argv, std::string_view key, size_t def) {
   auto v = get_arg(argc, argv, key);
   if (!v) return def;
   return static_cast<size_t>(std::stoull(*v));
 }
 
+// Parse a string from `--key value`, or return `def`.
 inline std::string get_str(int argc, char **argv, std::string_view key, const std::string &def) {
   auto v = get_arg(argc, argv, key);
   if (!v) return def;
   return *v;
 }
 
+// Parse a floating-point number from `--key value`, or return `def`.
 inline double get_double(int argc, char **argv, std::string_view key, double def) {
   auto v = get_arg(argc, argv, key);
   if (!v) return def;
   return std::stod(*v);
 }
 
+// ---- Minimal JSON printing ----
+//
+// Our binaries print one-line JSON objects on stdout.
+// We keep it dependency-free by implementing only what we need.
 inline void print_json_kv(std::ostream &os, const char *k, const std::string &v) {
   os << "\"" << k << "\":\"";
   for (char c : v) {

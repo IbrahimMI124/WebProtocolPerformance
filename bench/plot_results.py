@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
 
+"""Plot graphs from `bench/run_bench.py` outputs.
+
+This script reads:
+- `results.csv` (one row per framework)
+- `rest_latency.csv`, `ws_latency.csv`, `webrtc_latency.csv` (raw RTT samples)
+
+And produces 3 comparison plots:
+1) `startup_throughput.*`: bar charts for end-to-end startup and throughput
+2) `latency_cdf.*`: CDF curves of raw latency samples (RTT)
+3) `latency_boxplot.*`: boxplot of latency distributions
+
+All plots are written under `--out-dir`.
+"""
+
 import argparse
 import csv
 import math
@@ -8,6 +22,7 @@ from typing import Dict, List, Tuple
 
 
 def read_results_csv(path: Path) -> List[dict]:
+    # Read the flattened summary table produced by `run_bench.py`.
     rows: List[dict] = []
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
@@ -17,6 +32,8 @@ def read_results_csv(path: Path) -> List[dict]:
 
 
 def read_latency_csv(path: Path) -> List[float]:
+    # Read raw latency samples (milliseconds) from a 1-column CSV.
+    # These are written by each client when `--out-latency-csv` is set.
     values: List[float] = []
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
@@ -31,6 +48,9 @@ def read_latency_csv(path: Path) -> List[float]:
 
 
 def cdf(points: List[float]) -> Tuple[List[float], List[float]]:
+    # Convert raw samples into a CDF curve.
+    #
+    # If xs is sorted samples, then y_i = (i+1)/n gives an empirical CDF.
     if not points:
         return [], []
     xs = sorted(points)
@@ -40,12 +60,15 @@ def cdf(points: List[float]) -> Tuple[List[float], List[float]]:
 
 
 def nice_framework_order(names: List[str]) -> List[str]:
+    # Force a consistent visual order in plots.
+    # If a framework is missing (e.g. you didn't build it), we skip it.
     pref = ["rest", "websocket", "webrtc"]
     rest = [n for n in names if n not in pref]
     return [n for n in pref if n in names] + sorted(rest)
 
 
 def main() -> int:
+    # CLI options.
     ap = argparse.ArgumentParser(description="Plot benchmark CSV outputs")
     ap.add_argument("--in-dir", default="bench/out", help="Directory containing results.csv and *_latency.csv")
     ap.add_argument("--out-dir", default="bench/out/plots", help="Directory to write plots")
@@ -59,6 +82,8 @@ def main() -> int:
 
     try:
         import matplotlib
+        # Non-interactive mode (Agg) is best for CI and headless runs.
+        # If `--show` is set, we let matplotlib pick a GUI backend.
         matplotlib.use("Agg" if not args.show else None)  # type: ignore
         import matplotlib.pyplot as plt
     except Exception as e:
@@ -78,6 +103,7 @@ def main() -> int:
         return 2
 
     # Parse numeric columns.
+    # `csv.DictReader` gives strings, so we convert to float.
     parsed = []
     for r in rows:
         try:
@@ -98,6 +124,7 @@ def main() -> int:
     by_fw: Dict[str, dict] = {p["framework"]: p for p in parsed}
 
     # --- Plot 1: Startup and throughput bars ---
+    # Uses only the flattened `results.csv` summary.
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), dpi=140)
 
     ax = axes[0]
@@ -122,6 +149,7 @@ def main() -> int:
     fig.savefig(p1)
 
     # --- Plot 2: Latency CDF from samples ---
+    # Reads the raw per-message RTT samples written by each client.
     latency_files = {
         "rest": in_dir / "rest_latency.csv",
         "websocket": in_dir / "ws_latency.csv",
@@ -153,6 +181,7 @@ def main() -> int:
     fig2.savefig(p2)
 
     # --- Plot 3: Latency boxplot from samples ---
+    # A boxplot makes it easy to compare spread/outliers across frameworks.
     fig3, ax3 = plt.subplots(figsize=(7.5, 5.0), dpi=140)
     box_data = []
     box_labels = []

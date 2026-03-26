@@ -19,9 +19,34 @@
 
 namespace {
 
+// This file is a *minimal* WebSocket client implementation + benchmark loop.
+//
+// Why implement a client manually?
+// - uWebSockets is primarily a server library; it doesn't ship a simple C++ WS
+//   client API we can use here.
+// - For a benchmark we want a single self-contained executable.
+//
+// What this client supports (enough for this benchmark):
+// - TCP connect (no TLS)
+// - HTTP Upgrade handshake (RFC 6455)
+// - Send one *binary* frame per message (client frames are masked)
+// - Receive one echoed frame per message
+//
+// What it intentionally does NOT support (to keep it short):
+// - Fragmentation, extensions (permessage-deflate), ping/pong, close handshake
+// - Large protocol compliance beyond what's needed for echo
+
 static constexpr const char *kWsGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+// WebSocket handshake recap:
+// - Client sends `Sec-WebSocket-Key: <random base64>`
+// - Server replies with `Sec-WebSocket-Accept: base64( SHA1(key + GUID) )`
+// The GUID is fixed by the RFC.
+
 std::string base64_encode(std::string_view in) {
+  // Small Base64 encoder used for:
+  // - Encoding Sec-WebSocket-Key (random bytes)
+  // - Encoding SHA1 digest in Sec-WebSocket-Accept validation
   static constexpr char tbl[] =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   std::string out;
@@ -56,6 +81,10 @@ std::string base64_encode(std::string_view in) {
 }
 
 struct Sha1 {
+  // Minimal SHA1 implementation.
+  //
+  // We only need SHA1 for the WebSocket handshake accept validation.
+  // (This is not used for cryptographic security in the benchmark.)
   uint32_t h0 = 0x67452301;
   uint32_t h1 = 0xEFCDAB89;
   uint32_t h2 = 0x98BADCFE;
@@ -68,11 +97,13 @@ struct Sha1 {
   static uint32_t rol(uint32_t v, uint32_t n) { return (v << n) | (v >> (32 - n)); }
 
   void update(const uint8_t *data, size_t len) {
+    // Feed bytes into the hash. We buffer until we have a 64-byte block.
     total_bits += static_cast<uint64_t>(len) * 8;
     buf.insert(buf.end(), data, data + len);
     while (buf.size() >= 64) {
       uint32_t w[80];
       for (int i = 0; i < 16; i++) {
+        // SHA1 operates on big-endian 32-bit words.
         w[i] = (buf[i * 4] << 24) | (buf[i * 4 + 1] << 16) | (buf[i * 4 + 2] << 8) | (buf[i * 4 + 3]);
       }
       for (int i = 16; i < 80; i++) {
@@ -81,6 +112,8 @@ struct Sha1 {
 
       uint32_t a = h0, b = h1, c = h2, d = h3, e = h4;
       for (int i = 0; i < 80; i++) {
+        // SHA1 has 4 rounds (0-19, 20-39, 40-59, 60-79) with different
+        // boolean functions and constants.
         uint32_t f = 0;
         uint32_t k = 0;
         if (i < 20) {
@@ -115,6 +148,7 @@ struct Sha1 {
   }
 
   std::array<uint8_t, 20> final() {
+    // Finalize with padding (1-bit + zeros) and 64-bit length.
     std::vector<uint8_t> tmp = buf;
     tmp.push_back(0x80);
     while ((tmp.size() % 64) != 56) tmp.push_back(0);
@@ -143,6 +177,7 @@ struct Sha1 {
 };
 
 std::string ws_accept_for_key(const std::string &key_b64) {
+  // Compute what the server MUST return in Sec-WebSocket-Accept.
   std::string in = key_b64 + kWsGuid;
   Sha1 sha;
   sha.update(reinterpret_cast<const uint8_t *>(in.data()), in.size());
@@ -151,6 +186,10 @@ std::string ws_accept_for_key(const std::string &key_b64) {
 }
 
 int connect_tcp(const std::string &host, int port) {
+  // Resolve host/port and connect a TCP socket.
+  //
+  // We also set TCP_NODELAY to reduce Nagle's algorithm buffering, which can
+  // otherwise add latency for small messages.
   addrinfo hints{};
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
@@ -182,6 +221,8 @@ int connect_tcp(const std::string &host, int port) {
 }
 
 void write_all(int fd, const void *buf, size_t len) {
+  // `write(2)` may write fewer bytes than requested.
+  // This helper loops until everything is written or an error occurs.
   const uint8_t *p = static_cast<const uint8_t *>(buf);
   size_t off = 0;
   while (off < len) {
@@ -192,6 +233,8 @@ void write_all(int fd, const void *buf, size_t len) {
 }
 
 std::string read_until(int fd, const std::string &needle, size_t max_bytes = 64 * 1024) {
+  // Read from the socket until we see `needle` (used for HTTP headers).
+  // Safety: `max_bytes` prevents unbounded memory growth if the peer is bad.
   std::string out;
   out.reserve(1024);
   char buf[1024];
@@ -209,8 +252,10 @@ struct WsConn {
 };
 
 WsConn ws_connect(const std::string &host, int port, const std::string &path) {
+  // Perform the WebSocket HTTP Upgrade handshake and validate the response.
   int fd = connect_tcp(host, port);
 
+  // Create the random Sec-WebSocket-Key (16 bytes, base64 encoded).
   std::array<uint8_t, 16> rnd{};
   static thread_local std::mt19937 rng{std::random_device{}()};
   for (auto &b : rnd) b = static_cast<uint8_t>(rng() & 0xFF);
@@ -229,6 +274,7 @@ WsConn ws_connect(const std::string &host, int port, const std::string &path) {
   const auto s = req.str();
   write_all(fd, s.data(), s.size());
 
+  // Read HTTP response headers until the blank line terminator.
   const auto resp = read_until(fd, "\r\n\r\n");
   if (resp.find("101") == std::string::npos) throw std::runtime_error("handshake failed");
 
@@ -241,12 +287,17 @@ WsConn ws_connect(const std::string &host, int port, const std::string &path) {
   if (end == std::string::npos) throw std::runtime_error("bad accept");
   const std::string accept = resp.substr(pos, end - pos);
 
+  // Verify the server didn't accept a bogus handshake.
   if (accept != expected_accept) throw std::runtime_error("accept mismatch");
 
   return WsConn{fd};
 }
 
 void ws_send_binary(WsConn &c, const uint8_t *data, size_t len) {
+  // Send a single unfragmented WebSocket *binary* frame.
+  //
+  // RFC 6455 requires that **client-to-server** frames are masked.
+  // (Server-to-client frames are typically unmasked.)
   std::array<uint8_t, 4> mask{};
   static thread_local std::mt19937 rng{std::random_device{}()};
   for (auto &b : mask) b = static_cast<uint8_t>(rng() & 0xFF);
@@ -254,8 +305,14 @@ void ws_send_binary(WsConn &c, const uint8_t *data, size_t len) {
   std::vector<uint8_t> frame;
   frame.reserve(2 + 8 + 4 + len);
 
+  // Byte 0: FIN=1 (no fragmentation) + opcode=2 (binary)
   frame.push_back(0x80 | 0x2); // FIN + binary
 
+  // Byte 1: MASK bit + payload length encoding.
+  // Length rules:
+  // - 0..125: stored directly
+  // - 126: next 2 bytes are length
+  // - 127: next 8 bytes are length
   if (len < 126) {
     frame.push_back(static_cast<uint8_t>(0x80 | len));
   } else if (len <= 0xFFFF) {
@@ -267,11 +324,13 @@ void ws_send_binary(WsConn &c, const uint8_t *data, size_t len) {
     for (int i = 7; i >= 0; i--) frame.push_back(static_cast<uint8_t>((static_cast<uint64_t>(len) >> (i * 8)) & 0xFF));
   }
 
+  // Mask key is 4 bytes, inserted before the payload.
   frame.insert(frame.end(), mask.begin(), mask.end());
 
   const size_t payload_off = frame.size();
   frame.insert(frame.end(), data, data + len);
 
+  // Apply the XOR mask to the payload bytes.
   for (size_t i = 0; i < len; i++) {
     frame[payload_off + i] ^= mask[i % 4];
   }
@@ -280,6 +339,8 @@ void ws_send_binary(WsConn &c, const uint8_t *data, size_t len) {
 }
 
 std::vector<uint8_t> ws_recv_message(WsConn &c) {
+  // Receive a single unfragmented WebSocket message.
+  // This is enough for an echo server that sends one frame per message.
   uint8_t hdr[2];
   if (::read(c.fd, hdr, 2) != 2) throw std::runtime_error("read hdr failed");
 
@@ -288,6 +349,7 @@ std::vector<uint8_t> ws_recv_message(WsConn &c) {
   const bool masked = (hdr[1] & 0x80) != 0;
   uint64_t len = hdr[1] & 0x7F;
 
+  // For simplicity we reject fragmented messages.
   if (!fin) throw std::runtime_error("fragmentation unsupported");
   if (opcode == 0x8) throw std::runtime_error("closed");
   if (opcode != 0x2 && opcode != 0x1) throw std::runtime_error("unexpected opcode");
@@ -297,6 +359,7 @@ std::vector<uint8_t> ws_recv_message(WsConn &c) {
     if (::read(c.fd, ext, 2) != 2) throw std::runtime_error("read ext failed");
     len = (ext[0] << 8) | ext[1];
   } else if (len == 127) {
+    // 64-bit length in network byte order.
     uint8_t ext[8];
     if (::read(c.fd, ext, 8) != 8) throw std::runtime_error("read ext failed");
     len = 0;
@@ -308,6 +371,7 @@ std::vector<uint8_t> ws_recv_message(WsConn &c) {
     if (::read(c.fd, mask.data(), 4) != 4) throw std::runtime_error("read mask failed");
   }
 
+  // Read the payload body.
   std::vector<uint8_t> payload(len);
   size_t off = 0;
   while (off < payload.size()) {
@@ -316,6 +380,7 @@ std::vector<uint8_t> ws_recv_message(WsConn &c) {
     off += static_cast<size_t>(n);
   }
 
+  // Unmask if needed (server-to-client frames are usually unmasked).
   if (masked) {
     for (size_t i = 0; i < payload.size(); i++) payload[i] ^= mask[i % 4];
   }
@@ -330,6 +395,14 @@ static void usage() {
 } // namespace
 
 int main(int argc, char **argv) {
+  // This is the *WebSocket benchmark client*.
+  //
+  // Like `rest_client`, it supports:
+  // - `latency`: N echo round-trips
+  // - `throughput`: echo loop for S seconds
+  //
+  // The major difference from REST is that once the WebSocket handshake is
+  // complete, each message is a framed payload on the same connection.
   const std::string host = bench::get_str(argc, argv, "--host", "127.0.0.1");
   const int port = bench::get_int(argc, argv, "--port", 18081);
   const std::string path = bench::get_str(argc, argv, "--path", "/ws");
@@ -345,7 +418,9 @@ int main(int argc, char **argv) {
   }
 
   try {
+    // 1) TCP connect + HTTP upgrade handshake.
     auto conn = ws_connect(host, port, path);
+    // 2) The payload we'll send each time.
     const auto payload = bench::make_payload(payload_bytes);
 
     if (mode == "latency") {
@@ -353,6 +428,7 @@ int main(int argc, char **argv) {
       samples.reserve(static_cast<size_t>(requests));
 
       for (int i = 0; i < requests; i++) {
+        // Measure one echo RTT.
         const auto t0 = bench::Clock::now();
         ws_send_binary(conn, payload.data(), payload.size());
         auto echoed = ws_recv_message(conn);
