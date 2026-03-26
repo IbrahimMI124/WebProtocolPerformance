@@ -17,14 +17,12 @@ It measures:
 First time only (dependency submodules):
 
 ```bash
-cd "/home/mohammed-ibrahim/Downloads/Sem 6/SSP/Project/Code"
 git submodule update --init --recursive
 ```
 
 Build:
 
 ```bash
-cd "/home/mohammed-ibrahim/Downloads/Sem 6/SSP/Project/Code"
 cmake -S bench -B bench/build -DCMAKE_BUILD_TYPE=Release
 cmake --build bench/build -j
 ```

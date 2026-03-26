@@ -21,7 +21,7 @@ namespace {
 
 // This file is a *minimal* WebSocket client implementation + benchmark loop.
 //
-// Why implement a client manually?
+//
 // - uWebSockets is primarily a server library; it doesn't ship a simple C++ WS
 //   client API we can use here.
 // - For a benchmark we want a single self-contained executable.
