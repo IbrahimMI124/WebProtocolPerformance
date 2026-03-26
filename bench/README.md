@@ -60,3 +60,33 @@ Generate plots from CSV outputs (writes images under `bench/out/plots/` by defau
 ```bash
 python3 bench/plot_results.py --in-dir bench/out --out-dir bench/out/plots
 ```
+
+## Repeat runs + variance
+
+Single runs are noisy. To quantify run-to-run variance (same machine, same settings),
+use `bench/repeat_bench.py`.
+
+This will run the full suite multiple times (each run writes its own `results.json` and
+`results.csv`), then it aggregates everything and writes:
+
+- `all_runs_flat.csv`: one row per framework *per run*
+- `summary_stats.csv`: mean/stdev/variance/min/max (plus coefficient of variation)
+- `summary_stats.json`: same summary data as JSON
+
+Example (2 quick runs):
+
+```bash
+python3 bench/repeat_bench.py \
+	--bin-dir bench/build \
+	--out-root bench/out_repeated \
+	--runs 2 \
+	--requests 50 \
+	--payload-bytes 64 \
+	--duration-sec 2
+```
+
+The per-run outputs are stored under:
+
+- `bench/out_repeated/run_000/`
+- `bench/out_repeated/run_001/`
+- ...
