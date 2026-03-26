@@ -1,0 +1,10 @@
+# Build/output artifacts
+bench/build/
+bench/out/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS/editor
+.DS_Store
