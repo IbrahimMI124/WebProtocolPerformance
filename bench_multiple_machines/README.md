@@ -25,12 +25,29 @@ Build (from repo root):
 ```bash
 cmake -S bench_multiple_machines -B bench_multiple_machines/build -DCMAKE_BUILD_TYPE=Release
 cmake --build bench_multiple_machines/build -j
+```
 
 You can also use the helper script in this folder (builds both benches):
 
 ```bash
 ./bench_multiple_machines/build_all.sh --release
 ```
+
+If you get "permission denied", make the script executable:
+
+```bash
+chmod +x bench_multiple_machines/build_all.sh
+```
+
+If CMake reports a cache mismatch (source/build dirs don't match), remove the
+build folder and reconfigure:
+
+```bash
+rm -rf bench_multiple_machines/build
+cmake -S bench_multiple_machines -B bench_multiple_machines/build -DCMAKE_BUILD_TYPE=Release
+cmake --build bench_multiple_machines/build -j
+```
+
 ```
 
 ## Run
@@ -51,6 +68,7 @@ Useful knobs:
 
 ```bash
 python3 bench_multiple_machines/run_bench.py --help
+```
 
 ### What run_bench.py does
 
@@ -58,8 +76,8 @@ python3 bench_multiple_machines/run_bench.py --help
 
 1) Starts protocol servers and waits for their `READY` line
 2) Launches clients in two modes
-	- `latency` (fixed number of round-trips)
-	- `throughput` (fixed time window)
+ - `latency` (fixed number of round-trips)
+ - `throughput` (fixed time window)
 3) Parses the final JSON line printed by each client
 4) Writes outputs under `--out-dir`
 
@@ -76,9 +94,9 @@ You can run multiple clients per protocol with:
 
 ```bash
 python3 bench_multiple_machines/run_bench.py \
-	--bin-dir bench_multiple_machines/build \
-	--out-dir bench_multiple_machines/out \
-	--concurrency-list 1,2,4,8,16,32
+ --bin-dir bench_multiple_machines/build \
+ --out-dir bench_multiple_machines/out \
+ --concurrency-list 1,2,4,8,16,32
 ```
 
 The output CSV includes a `concurrency` column, and `results.json` stores per-concurrency runs.
@@ -89,23 +107,24 @@ The output CSV includes a `concurrency` column, and `results.json` stores per-co
 
 ```bash
 python3 bench_multiple_machines/run_bench.py \
-	--bin-dir bench_multiple_machines/build \
-	--role server \
-	--bind-host 0.0.0.0 \
-	--base-port 18080
+ --bin-dir bench_multiple_machines/build \
+ --role server \
+ --bind-host 0.0.0.0 \
+ --base-port 18080
 ```
 
 **Client machine** (run clients only):
 
 ```bash
 python3 bench_multiple_machines/run_bench.py \
-	--bin-dir bench_multiple_machines/build \
-	--out-dir bench_multiple_machines/out \
-	--role client \
-	--server-host <SERVER_IP> \
-	--base-port 18080 \
-	--concurrency-list 1,2,4,8,16,32
+ --bin-dir bench_multiple_machines/build \
+ --out-dir bench_multiple_machines/out \
+ --role client \
+ --server-host <SERVER_IP> \
+ --base-port 18080 \
+ --concurrency-list 1,2,4,8,16,32
 ```
+
 ```
 
 ## Plot
@@ -147,13 +166,13 @@ Example (2 quick runs):
 
 ```bash
 python3 bench_multiple_machines/repeat_bench.py \
-	--bin-dir bench_multiple_machines/build \
-	--out-root bench_multiple_machines/out_repeated \
-	--runs 2 \
-	--requests 50 \
-	--payload-bytes 64 \
-	--duration-sec 2 \
-	--concurrency-list 1,2,4,8,16,32
+ --bin-dir bench_multiple_machines/build \
+ --out-root bench_multiple_machines/out_repeated \
+ --runs 2 \
+ --requests 50 \
+ --payload-bytes 64 \
+ --duration-sec 2 \
+ --concurrency-list 1,2,4,8,16,32
 ```
 
 The per-run outputs are stored under:

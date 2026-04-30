@@ -402,6 +402,15 @@ def main() -> int:
     webrtc_server = bin_dir / "webrtc_server"
     webrtc_client = bin_dir / "webrtc_client"
     if webrtc_server.exists() and webrtc_client.exists():
+        if args.role == "both":
+            webrtc_setup_port = webrtc_port
+            webrtc_latency_port = webrtc_port + 10
+            webrtc_throughput_port = webrtc_port + 20
+        else:
+            # In client-only mode, connect to the single server port.
+            webrtc_setup_port = webrtc_port
+            webrtc_latency_port = webrtc_port
+            webrtc_throughput_port = webrtc_port
         def webrtc_one(
             mode: str,
             port: int,
@@ -436,7 +445,7 @@ def main() -> int:
         for conc in concurrency_list:
             # libdatachannel WebSocketServer tends to fail subsequent handshakes in the
             # same process; isolate each measurement in a fresh signaling server.
-            setup_info, setup_list = webrtc_one("setup", webrtc_port, [], conc)
+            setup_info, setup_list = webrtc_one("setup", webrtc_setup_port, [], conc)
             setup_ms_vals = [float(o.get("setup_ms", 0.0)) for o in setup_list]
             setup_result = {
                 "setup_ms": sum(setup_ms_vals) / len(setup_ms_vals) if setup_ms_vals else 0.0,
@@ -454,7 +463,7 @@ def main() -> int:
                 ])
             latency_info, _ = webrtc_one(
                 "latency",
-                webrtc_port + 10,
+                webrtc_latency_port,
                 latency_extras,
                 conc,
             )
@@ -466,7 +475,7 @@ def main() -> int:
 
             thr_info, thr_list = webrtc_one(
                 "throughput",
-                webrtc_port + 20,
+                webrtc_throughput_port,
                 [
                     [
                         "--duration-sec", str(args.duration_sec),
