@@ -1,6 +1,35 @@
 # Build/output artifacts
+# Bench harness
 bench/build/
 bench/out/
+bench/out*/
+bench_multiple_machines/build/
+bench_multiple_machines/out/
+bench_multiple_machines/out*/
+
+# CMake / build directories (repo-wide)
+**/build/
+**/cmake-build-*/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/CTestTestfile.cmake
+**/cmake_install.cmake
+**/install_manifest.txt
+**/compile_commands.json
+**/.cache/
+
+# C/C++ build outputs (repo-wide)
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.d
 
 # Python
 __pycache__/
