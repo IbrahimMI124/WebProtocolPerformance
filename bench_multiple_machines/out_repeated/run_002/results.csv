@@ -1,0 +1,4 @@
+framework,server_ready_ms,end_to_end_startup_ms,latency_avg_ms,latency_p95_ms,throughput_bytes_per_sec
+rest,1.688,13195.040,40.781200,42.059100,1587.200
+websocket,1.957,5015.247,0.025447,0.035251,2233310.000
+webrtc,5.682,1114.677,0.370611,0.580396,216640.000

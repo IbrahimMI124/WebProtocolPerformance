@@ -1,0 +1,100 @@
+{
+  "timestamp": "2026-03-26T17:06:06Z",
+  "params": {
+    "requests": 200,
+    "payload_bytes": 64,
+    "duration_sec": 5.0
+  },
+  "runs": [
+    {
+      "framework": "rest",
+      "server_ready_ms": 2.349853515625,
+      "end_to_end_startup_ms": 13188.475847244263,
+      "latency": {
+        "framework": "rest",
+        "metric": "latency",
+        "n": 200,
+        "min_ms": 1.02446,
+        "max_ms": 42.4154,
+        "avg_ms": 40.7868,
+        "p50_ms": 41.0377,
+        "p95_ms": 42.093
+      },
+      "throughput": {
+        "framework": "rest",
+        "metric": "throughput",
+        "duration_sec": 5,
+        "messages": 124,
+        "bytes": 7936,
+        "bytes_per_sec": 1587.2
+      }
+    },
+    {
+      "framework": "websocket",
+      "server_ready_ms": 2.483844757080078,
+      "end_to_end_startup_ms": 5019.49405670166,
+      "latency": {
+        "framework": "websocket",
+        "metric": "latency",
+        "n": 200,
+        "min_ms": 0.025233,
+        "max_ms": 0.29479,
+        "avg_ms": 0.0413521,
+        "p50_ms": 0.0402785,
+        "p95_ms": 0.0565023
+      },
+      "throughput": {
+        "framework": "websocket",
+        "metric": "throughput",
+        "duration_sec": 5,
+        "messages": 245609,
+        "bytes": 15718976,
+        "bytes_per_sec": 3143800.0
+      }
+    },
+    {
+      "framework": "webrtc",
+      "server_ready_ms": 5.761623382568359,
+      "end_to_end_startup_ms": 1114.8629188537598,
+      "setup": {
+        "info": {
+          "host": "127.0.0.1",
+          "port": 18132,
+          "server_ready_ms": 6.0405731201171875,
+          "end_to_end_startup_ms": 1038.111925125122
+        },
+        "result": {
+          "framework": "webrtc",
+          "metric": "setup",
+          "setup_ms": 1024.27
+        }
+      },
+      "latency": {
+        "framework": "webrtc",
+        "metric": "latency",
+        "n": 200,
+        "min_ms": 0.191613,
+        "max_ms": 0.994335,
+        "avg_ms": 0.381484,
+        "p50_ms": 0.353648,
+        "p95_ms": 0.663611,
+        "setup_ms": 1023.29
+      },
+      "throughput": {
+        "framework": "webrtc",
+        "metric": "throughput",
+        "duration_sec": 5,
+        "messages": 17167,
+        "bytes": 1098688,
+        "bytes_per_sec": 219738,
+        "setup_ms": 1025.87
+      },
+      "throughput_info": {
+        "host": "127.0.0.1",
+        "port": 18152,
+        "server_ready_ms": 7.183313369750977,
+        "end_to_end_startup_ms": 6043.0872440338135
+      }
+    }
+  ]
+}
