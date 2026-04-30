@@ -47,6 +47,13 @@ int main(int argc, char **argv) {
   httplib::Client cli(url);
   cli.set_keep_alive(true);
 
+  // Under higher concurrencies the server can legitimately queue requests.
+  // The default timeouts in cpp-httplib are relatively small, so we relax them
+  // to avoid treating queueing as a transport failure.
+  cli.set_connection_timeout(10, 0);
+  cli.set_read_timeout(60, 0);
+  cli.set_write_timeout(60, 0);
+
   // Build a payload of `payload_bytes`.
   // This is what we POST to `/echo`.
   std::string payload(reinterpret_cast<const char *>(bench::make_payload(payload_bytes).data()), payload_bytes);
