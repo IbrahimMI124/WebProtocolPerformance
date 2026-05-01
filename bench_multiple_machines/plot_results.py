@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
-"""Plot graphs from `bench_multiple_machines/run_bench.py` outputs.
+"""Plot graphs from `bench/run_bench.py` outputs.
 
 This script reads:
-- `results.csv` (one row per framework + concurrency)
-- `*_latency_c<concurrency>_i*.csv` (raw RTT samples per client)
+- `results.csv` (one row per framework)
+- `rest_latency.csv`, `ws_latency.csv`, `webrtc_latency.csv` (raw RTT samples)
 
 And produces 3 comparison plots:
 1) `startup_throughput.*`: bar charts for end-to-end startup and throughput
@@ -47,15 +47,6 @@ def read_latency_csv(path: Path) -> List[float]:
     return values
 
 
-def read_latency_glob(paths: List[Path]) -> List[float]:
-    samples: List[float] = []
-    for p in paths:
-        if not p.exists():
-            continue
-        samples.extend(read_latency_csv(p))
-    return samples
-
-
 def cdf(points: List[float]) -> Tuple[List[float], List[float]]:
     # Convert raw samples into a CDF curve.
     #
@@ -79,11 +70,10 @@ def nice_framework_order(names: List[str]) -> List[str]:
 def main() -> int:
     # CLI options.
     ap = argparse.ArgumentParser(description="Plot benchmark CSV outputs")
-    ap.add_argument("--in-dir", default="bench_multiple_machines/out", help="Directory containing results.csv and *_latency.csv")
-    ap.add_argument("--out-dir", default="bench_multiple_machines/out/plots", help="Directory to write plots")
+    ap.add_argument("--in-dir", default="bench/out", help="Directory containing results.csv and *_latency.csv")
+    ap.add_argument("--out-dir", default="bench/out/plots", help="Directory to write plots")
     ap.add_argument("--format", default="png", choices=["png", "svg"], help="Output image format")
     ap.add_argument("--show", action="store_true", help="Show plots interactively")
-    ap.add_argument("--concurrency", type=int, default=1, help="Concurrency level to plot")
     args = ap.parse_args()
 
     in_dir = Path(args.in_dir)
@@ -98,7 +88,7 @@ def main() -> int:
         import matplotlib.pyplot as plt
     except Exception as e:
         print("ERROR: matplotlib is required to plot graphs.")
-        print("Install with: python3 -m pip install -r bench_multiple_machines/requirements.txt")
+        print("Install with: python3 -m pip install -r bench/requirements.txt")
         print(f"Import error: {e}")
         return 2
 
@@ -117,9 +107,6 @@ def main() -> int:
     parsed = []
     for r in rows:
         try:
-            conc = int(r.get("concurrency", "1") or 1)
-            if conc != args.concurrency:
-                continue
             parsed.append(
                 {
                     "framework": r["framework"],
@@ -163,22 +150,19 @@ def main() -> int:
 
     # --- Plot 2: Latency CDF from samples ---
     # Reads the raw per-message RTT samples written by each client.
-    latency_globs = {
-        "rest": f"rest_latency_c{args.concurrency}_i*.csv",
-        "websocket": f"ws_latency_c{args.concurrency}_i*.csv",
-        "webrtc": f"webrtc_latency_c{args.concurrency}_i*.csv",
+    latency_files = {
+        "rest": in_dir / "rest_latency.csv",
+        "websocket": in_dir / "ws_latency.csv",
+        "webrtc": in_dir / "webrtc_latency.csv",
     }
 
     fig2, ax2 = plt.subplots(figsize=(7.5, 5.0), dpi=140)
     any_latency = False
     for fw in frameworks:
-        pat = latency_globs.get(fw)
-        if not pat:
+        lf = latency_files.get(fw)
+        if not lf or not lf.exists():
             continue
-        files = list(in_dir.glob(pat))
-        if not files:
-            continue
-        samples = read_latency_glob(files)
+        samples = read_latency_csv(lf)
         xs, ys = cdf(samples)
         if not xs:
             continue
@@ -202,13 +186,10 @@ def main() -> int:
     box_data = []
     box_labels = []
     for fw in frameworks:
-        pat = latency_globs.get(fw)
-        if not pat:
+        lf = latency_files.get(fw)
+        if not lf or not lf.exists():
             continue
-        files = list(in_dir.glob(pat))
-        if not files:
-            continue
-        samples = read_latency_glob(files)
+        samples = read_latency_csv(lf)
         if not samples:
             continue
         box_data.append(samples)

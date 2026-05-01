@@ -12,7 +12,7 @@
 using json = nlohmann::json;
 
 static void usage() {
-  std::cerr << "webrtc_server --port 18082\n";
+  std::cerr << "webrtc_server --port 18082 --host 0.0.0.0\n";
 }
 
 // For this benchmark we keep per-client state in one struct.
@@ -40,6 +40,7 @@ int main(int argc, char **argv) {
   //   {"type":"candidate", "cand":"...", "mid":"..."}
 
   const int port = bench::get_int(argc, argv, "--port", 18082);
+  const std::string host = bench::get_str(argc, argv, "--host", "127.0.0.1");
   if (port <= 0 || port > 65535) {
     usage();
     return 2;
@@ -51,12 +52,13 @@ int main(int argc, char **argv) {
   // Configure the signaling WebSocket server.
   rtc::WebSocketServer::Configuration wsc;
   wsc.port = static_cast<uint16_t>(port);
+  wsc.bindAddress = host;
   wsc.enableTls = false;
 
   rtc::WebSocketServer server(wsc);
 
   // IMPORTANT: The Python runner waits for this line before running clients.
-  std::cout << "READY 127.0.0.1 " << port << std::endl;
+  std::cout << "READY " << host << " " << port << std::endl;
 
   // Called once per signaling client connection.
   server.onClient([&](std::shared_ptr<rtc::WebSocket> ws) {

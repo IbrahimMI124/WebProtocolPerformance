@@ -4,7 +4,7 @@
 
 Why this exists
 ---------------
-`bench_multiple_machines/run_bench.py` runs the suite once and writes:
+`bench/run_bench.py` runs the suite once and writes:
 - `results.json` (nested, rich)
 - `results.csv`  (flat, one row per framework)
 
@@ -14,7 +14,7 @@ For reporting, you typically want *repeatability*:
 
 What this script does
 ---------------------
-1) Runs `bench_multiple_machines/run_bench.py` N times into per-run output directories:
+1) Runs `bench/run_bench.py` N times into per-run output directories:
      <out-root>/run_000/
      <out-root>/run_001/
      ...
@@ -27,8 +27,8 @@ What this script does
 
 Notes
 -----
-- This can run in multi-machine mode if you pass `--role client` and point
-    `--server-host` at a remote server. It does, however, quantify run-to-run noise.
+- This is still a *single-machine* benchmark unless you run servers/clients on
+  different devices. It does, however, quantify run-to-run noise.
 - Ports: to avoid TIME_WAIT / reuse issues, each run offsets `--base-port`.
 """
 
@@ -97,19 +97,17 @@ def _read_results_csv(path: Path) -> List[Dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def _try_read_webrtc_setup_ms(results_json: Path) -> Dict[int, float]:
-    """Extract webrtc setup_ms by concurrency from results.json if present."""
+def _try_read_webrtc_setup_ms(results_json: Path) -> Optional[float]:
+    """Extract webrtc setup_ms from results.json if present."""
 
     try:
         obj = json.loads(results_json.read_text())
     except Exception:
-        return {}
+        return None
 
-    out: Dict[int, float] = {}
     for run in obj.get("runs", []):
         if run.get("framework") != "webrtc":
             continue
-        conc = int(run.get("concurrency", 1) or 1)
         setup = run.get("setup")
         if not isinstance(setup, dict):
             continue
@@ -118,8 +116,8 @@ def _try_read_webrtc_setup_ms(results_json: Path) -> Dict[int, float]:
             continue
         v = setup_result.get("setup_ms")
         if isinstance(v, (int, float)):
-            out[conc] = float(v)
-    return out
+            return float(v)
+    return None
 
 
 def _write_csv(path: Path, header: List[str], rows: Iterable[List[Any]]) -> None:
@@ -133,7 +131,7 @@ def _write_csv(path: Path, header: List[str], rows: Iterable[List[Any]]) -> None
 def main() -> int:
     ap = argparse.ArgumentParser(description="Repeat run_bench.py and compute variance across runs")
     ap.add_argument("--bin-dir", required=True, help="CMake build dir containing binaries")
-    ap.add_argument("--out-root", default="bench_multiple_machines/out_repeated", help="Root directory for repeated run outputs")
+    ap.add_argument("--out-root", default="bench/out_repeated", help="Root directory for repeated run outputs")
     ap.add_argument("--runs", type=int, default=10, help="Number of runs")
 
     # Pass-through knobs to run_bench.py
@@ -141,10 +139,6 @@ def main() -> int:
     ap.add_argument("--payload-bytes", type=int, default=64)
     ap.add_argument("--duration-sec", type=float, default=5.0)
     ap.add_argument("--base-port", type=int, default=18080)
-    ap.add_argument("--concurrency-list", default="1,2,4,8,16,32")
-    ap.add_argument("--role", choices=["both", "server", "client"], default="both")
-    ap.add_argument("--bind-host", default="127.0.0.1")
-    ap.add_argument("--server-host", default="127.0.0.1")
 
     # Run hygiene
     ap.add_argument("--port-step", type=int, default=50, help="Base-port increment per run")
@@ -158,7 +152,7 @@ def main() -> int:
         raise SystemExit("--runs must be > 0")
 
     repo_root = Path(__file__).resolve().parent.parent
-    run_bench = repo_root / "bench_multiple_machines" / "run_bench.py"
+    run_bench = repo_root / "bench" / "run_bench.py"
     if not run_bench.exists():
         print(f"ERROR: missing {run_bench}")
         return 2
@@ -191,14 +185,6 @@ def main() -> int:
             str(args.payload_bytes),
             "--duration-sec",
             str(args.duration_sec),
-            "--concurrency-list",
-            str(args.concurrency_list),
-            "--role",
-            str(args.role),
-            "--bind-host",
-            str(args.bind_host),
-            "--server-host",
-            str(args.server_host),
         ]
 
         print(f"[{i+1}/{args.runs}] running: {' '.join(cmd)}")
@@ -218,10 +204,10 @@ def main() -> int:
 
     # --- Step 2: aggregate outputs ---
     flat_rows: List[Dict[str, Any]] = []
-    series: Dict[Tuple[str, int], Dict[str, List[float]]] = {}  # (framework, concurrency) -> metric -> [values]
+    series: Dict[str, Dict[str, List[float]]] = {}  # framework -> metric -> [values]
 
-    def add_value(framework: str, concurrency: int, metric: str, value: float) -> None:
-        series.setdefault((framework, concurrency), {}).setdefault(metric, []).append(value)
+    def add_value(framework: str, metric: str, value: float) -> None:
+        series.setdefault(framework, {}).setdefault(metric, []).append(value)
 
     run_dirs = sorted([p for p in out_root.iterdir() if p.is_dir() and p.name.startswith("run_")])
     for run_dir in run_dirs:
@@ -245,7 +231,6 @@ def main() -> int:
             record = {
                 "run": run_dir.name,
                 "framework": fw,
-                "concurrency": int(r.get("concurrency", "1") or 1),
                 "server_ready_ms": f("server_ready_ms"),
                 "end_to_end_startup_ms": f("end_to_end_startup_ms"),
                 "latency_avg_ms": f("latency_avg_ms"),
@@ -255,14 +240,14 @@ def main() -> int:
             flat_rows.append(record)
 
             for k, v in record.items():
-                if k in ("run", "framework", "concurrency"):
+                if k in ("run", "framework"):
                     continue
-                add_value(fw, record["concurrency"], k, float(v))
+                add_value(fw, k, float(v))
 
         # Add WebRTC setup_ms if present (this is not in results.csv)
-        setup_ms_map = _try_read_webrtc_setup_ms(results_json) if results_json.exists() else {}
-        for conc, setup_ms in setup_ms_map.items():
-            add_value("webrtc", conc, "setup_ms", float(setup_ms))
+        setup_ms = _try_read_webrtc_setup_ms(results_json) if results_json.exists() else None
+        if setup_ms is not None:
+            add_value("webrtc", "setup_ms", float(setup_ms))
 
     # Write per-run flat table
     flat_path = out_root / "all_runs_flat.csv"
@@ -271,7 +256,6 @@ def main() -> int:
         [
             "run",
             "framework",
-            "concurrency",
             "server_ready_ms",
             "end_to_end_startup_ms",
             "latency_avg_ms",
@@ -282,7 +266,6 @@ def main() -> int:
             [
                 r["run"],
                 r["framework"],
-                r["concurrency"],
                 f"{r['server_ready_ms']:.6f}",
                 f"{r['end_to_end_startup_ms']:.6f}",
                 f"{r['latency_avg_ms']:.6f}",
@@ -297,14 +280,13 @@ def main() -> int:
     summary_rows: List[List[Any]] = []
     summary_obj: Dict[str, Dict[str, Any]] = {}
 
-    for (fw, conc) in sorted(series.keys()):
-        summary_obj.setdefault(fw, {}).setdefault(str(conc), {})
-        for metric in sorted(series[(fw, conc)].keys()):
-            st = _stats(series[(fw, conc)][metric])
+    for fw in sorted(series.keys()):
+        summary_obj[fw] = {}
+        for metric in sorted(series[fw].keys()):
+            st = _stats(series[fw][metric])
             summary_rows.append(
                 [
                     fw,
-                    conc,
                     metric,
                     st.n,
                     st.mean,
@@ -315,7 +297,7 @@ def main() -> int:
                     st.cv_percent,
                 ]
             )
-            summary_obj[fw][str(conc)][metric] = {
+            summary_obj[fw][metric] = {
                 "n": st.n,
                 "mean": st.mean,
                 "stdev": st.stdev,
@@ -328,19 +310,18 @@ def main() -> int:
     summary_csv = out_root / "summary_stats.csv"
     _write_csv(
         summary_csv,
-        ["framework", "concurrency", "metric", "n", "mean", "stdev", "variance", "min", "max", "cv_percent"],
+        ["framework", "metric", "n", "mean", "stdev", "variance", "min", "max", "cv_percent"],
         (
             [
                 r[0],
                 r[1],
                 r[2],
-                r[3],
+                f"{float(r[3]):.6f}",
                 f"{float(r[4]):.6f}",
                 f"{float(r[5]):.6f}",
                 f"{float(r[6]):.6f}",
                 f"{float(r[7]):.6f}",
-                f"{float(r[8]):.6f}",
-                f"{float(r[9]):.3f}",
+                f"{float(r[8]):.3f}",
             ]
             for r in summary_rows
         ),
