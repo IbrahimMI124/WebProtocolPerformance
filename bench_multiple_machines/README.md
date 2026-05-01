@@ -93,7 +93,7 @@ taskset -c 4-5 python3 bench_multiple_machines/run_client_rest_sweep.py \
 	--bin-dir bench_multiple_machines/build \
 	--server-host <SERVER_IP> \
 	--payloads 64,256,1024,4096 \
-	--runs-per-payload 5 \
+	--runs-per-payload 10 \
 	--out-root bench_multiple_machines/out_sweeps/rest
 ```
 

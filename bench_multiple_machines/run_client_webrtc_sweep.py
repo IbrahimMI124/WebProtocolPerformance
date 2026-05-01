@@ -39,7 +39,7 @@ def main() -> int:
     ap.add_argument("--duration-sec", type=float, default=5.0)
     ap.add_argument("--ws-path", default="/ws")
     ap.add_argument("--ready-timeout", type=float, default=10.0)
-    ap.add_argument("--sleep-sec", type=float, default=0.2)
+    ap.add_argument("--sleep-sec", type=float, default=1.5)
     ap.add_argument("--keep-going", action="store_true", help="Continue even if a run fails")
     args = ap.parse_args()
 
