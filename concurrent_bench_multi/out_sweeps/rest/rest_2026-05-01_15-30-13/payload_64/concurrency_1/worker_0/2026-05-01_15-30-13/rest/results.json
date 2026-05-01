@@ -1,0 +1,23 @@
+{
+  "framework": "rest",
+  "server_ready_ms": 0.0,
+  "end_to_end_startup_ms": 17274.305820465088,
+  "latency": {
+    "framework": "rest",
+    "metric": "latency",
+    "n": 200,
+    "min_ms": 14.1607,
+    "max_ms": 105.861,
+    "avg_ms": 61.2536,
+    "p50_ms": 55.2495,
+    "p95_ms": 96.7912
+  },
+  "throughput": {
+    "framework": "rest",
+    "metric": "throughput",
+    "duration_sec": 5,
+    "messages": 79,
+    "bytes": 5056,
+    "bytes_per_sec": 1011.2
+  }
+}

@@ -1,0 +1,2 @@
+framework,server_ready_ms,end_to_end_startup_ms,latency_avg_ms,latency_p95_ms,throughput_bytes_per_sec
+rest,0.000,17274.306,61.253600,96.791200,1011.200

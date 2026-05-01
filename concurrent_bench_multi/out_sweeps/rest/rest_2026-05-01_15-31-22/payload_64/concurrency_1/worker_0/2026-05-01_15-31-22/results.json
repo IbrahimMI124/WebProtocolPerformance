@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-05-01T10:01:22Z",
+  "params": {
+    "requests": 200,
+    "payload_bytes": 64,
+    "duration_sec": 5.0
+  },
+  "runs": [
+    {
+      "framework": "rest",
+      "server_ready_ms": 0.0,
+      "end_to_end_startup_ms": 16694.841861724854,
+      "latency": {
+        "framework": "rest",
+        "metric": "latency",
+        "n": 200,
+        "min_ms": 13.1821,
+        "max_ms": 120.937,
+        "avg_ms": 58.3845,
+        "p50_ms": 54.9506,
+        "p95_ms": 86.9466
+      },
+      "throughput": {
+        "framework": "rest",
+        "metric": "throughput",
+        "duration_sec": 5,
+        "messages": 82,
+        "bytes": 5248,
+        "bytes_per_sec": 1049.6
+      }
+    }
+  ]
+}

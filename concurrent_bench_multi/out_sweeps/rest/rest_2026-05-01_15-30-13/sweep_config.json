@@ -1,0 +1,18 @@
+{
+  "protocol": "rest",
+  "args": {
+    "bin_dir": "concurrent_bench_multi/build",
+    "server_host": "172.20.10.2",
+    "out_root": "concurrent_bench_multi/out_sweeps/rest",
+    "payloads": "64,256,1024,4096",
+    "concurrency_values": "1,2,4,8,16",
+    "runs_per_payload": 10,
+    "base_port": 18080,
+    "requests": 200,
+    "duration_sec": 5.0,
+    "ws_path": "/ws",
+    "ready_timeout": 10.0,
+    "sleep_sec": 0.2,
+    "keep_going": false
+  }
+}
