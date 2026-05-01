@@ -23,8 +23,8 @@ git submodule update --init --recursive
 Build:
 
 ```bash
-cmake -S bench -B bench/build -DCMAKE_BUILD_TYPE=Release
-cmake --build bench/build -j
+cmake -S bench_multiple_machines -B bench_multiple_machines/build -DCMAKE_BUILD_TYPE=Release
+cmake --build bench_multiple_machines/build -j
 ```
 
 ## Run (two machines)
@@ -36,8 +36,10 @@ You can split the benchmark across two machines:
 
 ### Server machine
 
+Pin the server to specific CPU cores using `taskset` for more stable results:
+
 ```bash
-python3 bench_multiple_machines/run_server.py \
+taskset -c 2-3 python3 bench_multiple_machines/run_server.py \
 	--bin-dir bench_multiple_machines/build \
 	--host 0.0.0.0 \
 	--base-port 18080
@@ -51,8 +53,10 @@ This starts:
 
 ### Client machine
 
+Pin the client to specific CPU cores using `taskset` for more stable results:
+
 ```bash
-python3 bench_multiple_machines/run_client.py \
+taskset -c 4-5 python3 bench_multiple_machines/run_client.py \
 	--bin-dir bench_multiple_machines/build \
 	--server-host <SERVER_IP> \
 	--base-port 18080 \
@@ -65,54 +69,55 @@ Useful knobs:
 python3 bench_multiple_machines/run_client.py --help
 ```
 
-## Run (single machine)
-
-If you want the original single-machine orchestration, use `run_bench.py`:
+Protocol selection (server and client):
 
 ```bash
-python3 bench_multiple_machines/run_bench.py --bin-dir bench_multiple_machines/build --out-dir bench_multiple_machines/out
+taskset -c 2-3 python3 bench_multiple_machines/run_server.py --bin-dir bench_multiple_machines/build --protocol rest
+taskset -c 4-5 python3 bench_multiple_machines/run_client.py --bin-dir bench_multiple_machines/build --server-host <SERVER_IP> --protocol rest
 ```
 
-## Plot
+## Sweep runs (payload configs)
 
-Install plotting dependency:
+There are per-protocol sweep runners that run the client multiple times across
+payload sizes and store outputs neatly:
+
+- `run_client_rest_sweep.py`
+- `run_client_websocket_sweep.py`
+- `run_client_webrtc_sweep.py`
+
+Each sweep script iterates through `--payloads` (comma-separated) and runs
+`--runs-per-payload` repeats. Example:
 
 ```bash
-python3 -m pip install -r bench/requirements.txt
+taskset -c 4-5 python3 bench_multiple_machines/run_client_rest_sweep.py \
+	--bin-dir bench_multiple_machines/build \
+	--server-host <SERVER_IP> \
+	--payloads 64,256,1024,4096 \
+	--runs-per-payload 5 \
+	--out-root bench_multiple_machines/out_sweeps/rest
 ```
 
-Generate plots from CSV outputs (writes images under `bench/out/plots/` by default):
+Defaults (if you do not pass flags):
 
-```bash
-python3 bench/plot_results.py --in-dir bench/out --out-dir bench/out/plots
-```
+- `--payloads 64,256,1024`
+- `--runs-per-payload 3`
+- `--requests 200`
+- `--duration-sec 5.0`
 
-## Repeat runs + variance
+## Output layout
 
-Single runs are noisy. To quantify run-to-run variance (same machine, same settings),
-use `bench/repeat_bench.py`.
+- Single client run (`run_client.py`) creates a timestamped folder under `--out-dir`:
+	- `2026-05-01_12-30-45/`
+	- `config.json`
+	- `results.csv`
+	- `results.json`
+	- `rest/latency.csv`, `rest/results.json`
+	- `websocket/latency.csv`, `websocket/results.json`
+	- `webrtc/latency.csv`, `webrtc/results.json`
 
-This will run the full suite multiple times (each run writes its own `results.json` and
-`results.csv`), then it aggregates everything and writes:
-
-- `all_runs_flat.csv`: one row per framework *per run*
-- `summary_stats.csv`: mean/stdev/variance/min/max (plus coefficient of variation)
-- `summary_stats.json`: same summary data as JSON
-
-Example (2 quick runs):
-
-```bash
-python3 bench/repeat_bench.py \
-	--bin-dir bench/build \
-	--out-root bench/out_repeated \
-	--runs 2 \
-	--requests 50 \
-	--payload-bytes 64 \
-	--duration-sec 2
-```
-
-The per-run outputs are stored under:
-
-- `bench/out_repeated/run_000/`
-- `bench/out_repeated/run_001/`
-- ...
+- Sweep run (`run_client_*_sweep.py`) creates a timestamped sweep folder under `--out-root`:
+	- `rest_2026-05-01_12-30-45/`
+	- `sweep_config.json`
+	- `payload_64/` (contains multiple run folders created by `run_client.py`)
+	- `payload_256/`
+	- `payload_1024/`

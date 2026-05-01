@@ -43,11 +43,28 @@ def _make_env(bin_dir: Path) -> dict[str, str]:
     return env
 
 
+def _unique_run_dir(out_dir: Path, ts: str) -> Path:
+    candidate = out_dir / ts
+    if not candidate.exists():
+        return candidate
+    for idx in range(1, 1000):
+        candidate = out_dir / f"{ts}_{idx:02d}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError("failed to create unique run directory")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bin-dir", required=True, help="CMake build dir containing binaries")
     ap.add_argument("--server-host", required=True, help="Server machine IP/hostname")
-    ap.add_argument("--out-dir", default="bench", help="Where to write results")
+    ap.add_argument("--out-dir", default="results", help="Where to write results")
+    ap.add_argument(
+        "--protocol",
+        choices=["rest", "websocket", "webrtc", "all"],
+        default="all",
+        help="Which protocol(s) to run",
+    )
     ap.add_argument("--base-port", type=int, default=18080)
     ap.add_argument("--requests", type=int, default=200)
     ap.add_argument("--payload-bytes", type=int, default=64)
@@ -59,6 +76,11 @@ def main() -> int:
     bin_dir = Path(args.bin_dir)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    run_ts = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
+    run_dir = _unique_run_dir(out_dir, run_ts)
+    run_dir.mkdir(parents=True, exist_ok=False)
+    for proto in ("rest", "websocket", "webrtc"):
+        (run_dir / proto).mkdir(parents=True, exist_ok=True)
     env = _make_env(bin_dir)
 
     rest_port = args.base_port
@@ -77,12 +99,20 @@ def main() -> int:
         "runs": [],
     }
 
+    config = {
+        "args": vars(args),
+        "server_host": args.server_host,
+    }
+    (run_dir / "config.json").write_text(json.dumps(config, indent=2))
+
     rest_client = bin_dir / "rest_client"
     ws_client = bin_dir / "ws_client"
     webrtc_client = bin_dir / "webrtc_client"
 
+    selected = {"rest", "websocket", "webrtc"} if args.protocol == "all" else {args.protocol}
+
     # REST
-    if rest_client.exists():
+    if "rest" in selected and rest_client.exists():
         _wait_port(args.server_host, rest_port, args.ready_timeout)
         t0 = time.time()
         latency = _run_json([
@@ -91,7 +121,7 @@ def main() -> int:
             "--mode", "latency",
             "--requests", str(args.requests),
             "--payload-bytes", str(args.payload_bytes),
-            "--out-latency-csv", str(out_dir / "rest_latency.csv"),
+            "--out-latency-csv", str(run_dir / "rest" / "latency.csv"),
         ], env)
         thr = _run_json([
             str(rest_client),
@@ -100,16 +130,18 @@ def main() -> int:
             "--duration-sec", str(args.duration_sec),
             "--payload-bytes", str(args.payload_bytes),
         ], env)
-        results["runs"].append({
+        rest_result = {
             "framework": "rest",
             "server_ready_ms": 0.0,
             "end_to_end_startup_ms": (time.time() - t0) * 1000.0,
             "latency": latency,
             "throughput": thr,
-        })
+        }
+        (run_dir / "rest" / "results.json").write_text(json.dumps(rest_result, indent=2))
+        results["runs"].append(rest_result)
 
     # WebSocket
-    if ws_client.exists():
+    if "websocket" in selected and ws_client.exists():
         _wait_port(args.server_host, ws_port, args.ready_timeout)
         t0 = time.time()
         latency = _run_json([
@@ -120,7 +152,7 @@ def main() -> int:
             "--mode", "latency",
             "--requests", str(args.requests),
             "--payload-bytes", str(args.payload_bytes),
-            "--out-latency-csv", str(out_dir / "ws_latency.csv"),
+            "--out-latency-csv", str(run_dir / "websocket" / "latency.csv"),
         ], env)
         thr = _run_json([
             str(ws_client),
@@ -131,16 +163,18 @@ def main() -> int:
             "--duration-sec", str(args.duration_sec),
             "--payload-bytes", str(args.payload_bytes),
         ], env)
-        results["runs"].append({
+        ws_result = {
             "framework": "websocket",
             "server_ready_ms": 0.0,
             "end_to_end_startup_ms": (time.time() - t0) * 1000.0,
             "latency": latency,
             "throughput": thr,
-        })
+        }
+        (run_dir / "websocket" / "results.json").write_text(json.dumps(ws_result, indent=2))
+        results["runs"].append(ws_result)
 
     # WebRTC (separate signaling servers per mode)
-    if webrtc_client.exists():
+    if "webrtc" in selected and webrtc_client.exists():
         _wait_port(args.server_host, webrtc_setup_port, args.ready_timeout)
         _wait_port(args.server_host, webrtc_latency_port, args.ready_timeout)
         _wait_port(args.server_host, webrtc_throughput_port, args.ready_timeout)
@@ -157,8 +191,9 @@ def main() -> int:
             "--mode", "latency",
             "--requests", str(args.requests),
             "--payload-bytes", str(args.payload_bytes),
-            "--out-latency-csv", str(out_dir / "webrtc_latency.csv"),
+            "--out-latency-csv", str(run_dir / "webrtc" / "latency.csv"),
         ], env, timeout_s=120.0)
+            # "--out-latency-csv", str(out_dir / "webrtc_latency.csv"), buggy
 
         thr = _run_json([
             str(webrtc_client),
@@ -168,16 +203,18 @@ def main() -> int:
             "--payload-bytes", str(args.payload_bytes),
         ], env, timeout_s=120.0)
 
-        results["runs"].append({
+        webrtc_result = {
             "framework": "webrtc",
             "server_ready_ms": 0.0,
             "end_to_end_startup_ms": 0.0,
             "setup": {"result": setup},
             "latency": latency,
             "throughput": thr,
-        })
+        }
+        (run_dir / "webrtc" / "results.json").write_text(json.dumps(webrtc_result, indent=2))
+        results["runs"].append(webrtc_result)
 
-    (out_dir / "results.json").write_text(json.dumps(results, indent=2))
+    (run_dir / "results.json").write_text(json.dumps(results, indent=2))
 
     rows = [
         "framework,server_ready_ms,end_to_end_startup_ms,latency_avg_ms,latency_p95_ms,throughput_bytes_per_sec",
@@ -189,9 +226,9 @@ def main() -> int:
             f"{r.get('framework','')},{r.get('server_ready_ms',0):.3f},{r.get('end_to_end_startup_ms',0):.3f},{lat.get('avg_ms',0):.6f},{lat.get('p95_ms',0):.6f},{thr.get('bytes_per_sec',0):.3f}"
         )
 
-    (out_dir / "results.csv").write_text("\n".join(rows) + "\n")
+    (run_dir / "results.csv").write_text("\n".join(rows) + "\n")
 
-    print(f"Wrote {out_dir/'results.json'} and {out_dir/'results.csv'}")
+    print(f"Wrote {run_dir/'results.json'} and {run_dir/'results.csv'}")
     return 0
 
 

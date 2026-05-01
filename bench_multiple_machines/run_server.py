@@ -65,6 +65,12 @@ def main() -> int:
     ap.add_argument("--bin-dir", required=True, help="CMake build dir containing binaries")
     ap.add_argument("--host", default="0.0.0.0", help="Bind host for REST/WS servers")
     ap.add_argument("--base-port", type=int, default=18080)
+    ap.add_argument(
+        "--protocol",
+        choices=["rest", "websocket", "webrtc", "all"],
+        default="all",
+        help="Which protocol servers to start",
+    )
     ap.add_argument("--ws-path", default="/ws")
     ap.add_argument("--ready-timeout", type=float, default=10.0)
     args = ap.parse_args()
@@ -83,10 +89,11 @@ def main() -> int:
     webrtc_server = bin_dir / "webrtc_server"
 
     procs: list[subprocess.Popen] = []
+    selected = {"rest", "websocket", "webrtc"} if args.protocol == "all" else {args.protocol}
     try:
-        if rest_server.exists():
+        if "rest" in selected and rest_server.exists():
             procs.append(_spawn([str(rest_server), "--host", args.host, "--port", str(rest_port)], env))
-        if ws_server.exists():
+        if "websocket" in selected and ws_server.exists():
             procs.append(
                 _spawn([
                     str(ws_server),
@@ -95,26 +102,26 @@ def main() -> int:
                     "--path", args.ws_path,
                 ], env)
             )
-        if webrtc_server.exists():
+        if "webrtc" in selected and webrtc_server.exists():
             procs.append(_spawn([str(webrtc_server), "--host", args.host, "--port", str(webrtc_setup_port)], env))
             procs.append(_spawn([str(webrtc_server), "--host", args.host, "--port", str(webrtc_latency_port)], env))
             procs.append(_spawn([str(webrtc_server), "--host", args.host, "--port", str(webrtc_throughput_port)], env))
 
-        if rest_server.exists():
+        if "rest" in selected and rest_server.exists():
             _wait_port(args.host, rest_port, args.ready_timeout)
-        if ws_server.exists():
+        if "websocket" in selected and ws_server.exists():
             _wait_port(args.host, ws_port, args.ready_timeout)
-        if webrtc_server.exists():
+        if "webrtc" in selected and webrtc_server.exists():
             _wait_port(args.host, webrtc_setup_port, args.ready_timeout)
             _wait_port(args.host, webrtc_latency_port, args.ready_timeout)
             _wait_port(args.host, webrtc_throughput_port, args.ready_timeout)
 
         print("Servers ready:")
-        if rest_server.exists():
+        if "rest" in selected and rest_server.exists():
             print(f"  REST http://{args.host}:{rest_port}")
-        if ws_server.exists():
+        if "websocket" in selected and ws_server.exists():
             print(f"  WS   ws://{args.host}:{ws_port}{args.ws_path}")
-        if webrtc_server.exists():
+        if "webrtc" in selected and webrtc_server.exists():
             print(f"  WebRTC setup      ws://{args.host}:{webrtc_setup_port}")
             print(f"  WebRTC latency    ws://{args.host}:{webrtc_latency_port}")
             print(f"  WebRTC throughput ws://{args.host}:{webrtc_throughput_port}")
